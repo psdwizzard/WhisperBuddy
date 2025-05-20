@@ -1,3 +1,5 @@
+import argparse
+import sys
 import customtkinter
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, Listbox, END, SINGLE, filedialog
