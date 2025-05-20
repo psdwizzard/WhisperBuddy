@@ -1,13 +1,4 @@
 @echo off
-REM Clone the Repository
-git clone https://github.com/psdwizzard/MeetingBuddy.git
-if errorlevel 1 (
-    echo Error cloning repository. Exiting.
-    pause
-    exit /b 1
-)
-cd MeetingBuddy
-
 REM Create a Virtual Environment named 'venv'
 python -m venv venv
 if errorlevel 1 (
