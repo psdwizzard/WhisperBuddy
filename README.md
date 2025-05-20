@@ -32,8 +32,8 @@ A simple desktop application for real-time speech-to-text transcription using Op
 
 ### Clone the Repository
 ```bash
-git clone https://github.com/psdwizzard/MeetingBuddy.git
-cd MeetingBuddy
+git clone https://github.com/psdwizzard/WhisperBuddy.git
+cd WhisperBuddy
 ```
 
 ### Create and Activate a Virtual Environment
