@@ -20,6 +20,20 @@ import wave
 from fpdf import FPDF
 from docx import Document
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description="WhisperBuddy application")
+parser.add_argument('--meetings', action='store_true', help='Enable meeting features')
+parser.add_argument('--mp3', action='store_true', help='Enable MP3 upload features')
+parser.add_argument('--summaries', action='store_true', help='Enable summary features')
+parser.add_argument('--full', action='store_true', help='Enable all features')
+args = parser.parse_args()
+
+# After parsing, if --full is set, enable all features
+if args.full:
+    args.meetings = True
+    args.mp3 = True
+    args.summaries = True
+
 # -------------------- Helper Functions --------------------
 def remove_think_tags(text):
     """Remove any text between <think> and </think> tags."""
@@ -227,9 +241,10 @@ class ModelManager:
 
 # -------------------- MeetingBuddy Application --------------------
 class MeetingBuddyApp:
-    def __init__(self):
+    def __init__(self, cli_args):
+        self.cli_args = cli_args # Store cli_args
         self.app = customtkinter.CTk()
-        self.app.title("MeetingBuddy")
+        self.app.title("Whisper Buddy")
 
         # Load persistent settings
         self.settings = self.load_persistent_settings()
@@ -240,6 +255,7 @@ class MeetingBuddyApp:
         self.meeting_running = False
         self.live_transcribing = False
         self.advanced_meeting_running = False
+        self.is_long_listening = False # Initialize is_long_listening
 
         self.audio_data = []
         self.meeting_audio_data = []
@@ -268,53 +284,59 @@ class MeetingBuddyApp:
         self.accent_color_var = customtkinter.StringVar(value=self.settings.get("accent_color", "#1f538d"))
         self.text_color_var = customtkinter.StringVar(value=self.settings.get("text_color", "white"))
         
-        # Add yellow theme colors
         self.YELLOW_THEME = {
             "button_color": "#ffc600",
             "button_text_color": "#36332a",
             "board_button_color": "#a07c00"
         }
         
-        # Apply saved theme settings
         customtkinter.set_appearance_mode(self.appearance_mode_var.get())
-        customtkinter.set_default_color_theme("blue")  # Base theme before custom colors
+        customtkinter.set_default_color_theme("blue")
 
-        # Add default theme constants
         self.DEFAULT_APPEARANCE_MODE = "Dark"
         self.DEFAULT_ACCENT_COLOR = "#1f538d"
 
-        # Add button visibility settings
+        # Determine if any specific feature flags are set
+        any_feature_flag_set = self.cli_args.meetings or self.cli_args.mp3 or self.cli_args.summaries
+
+        # Initialize button visibility based on CLI args
         self.button_visibility = {
-            "listen": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("listen", True)),
-            "start_meeting": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("start_meeting", True)),
-            "end_meeting": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("end_meeting", True)),
-            "live_transcribe": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("live_transcribe", True)),
-            "stop_live": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("stop_live", True)),
-            "upload_audio": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("upload_audio", True)),
-            "start_advanced": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("start_advanced", True)),
-            "end_advanced": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("end_advanced", True)),
-            "summarize": tk.BooleanVar(value=self.settings.get("button_visibility", {}).get("summarize", True)),
-            "long_listen": tk.BooleanVar(value=True)
+            "listen": tk.BooleanVar(value=True), # Always visible
+            "long_listen": tk.BooleanVar(value=True), # Always visible
+            "live_transcribe": tk.BooleanVar(value=True), # Always visible
+            "stop_live": tk.BooleanVar(value=True), # Always visible
+            "start_meeting": tk.BooleanVar(value=self.cli_args.meetings),
+            "end_meeting": tk.BooleanVar(value=self.cli_args.meetings),
+            "upload_audio": tk.BooleanVar(value=self.cli_args.mp3),
+            "start_advanced": tk.BooleanVar(value=self.cli_args.meetings),
+            "end_advanced": tk.BooleanVar(value=self.cli_args.meetings),
+            "summarize": tk.BooleanVar(value=self.cli_args.summaries)
         }
+
+        # If a feature is enabled by a tag, force its button ON
+        if self.cli_args.meetings:
+            self.button_visibility["start_meeting"].set(True)
+            self.button_visibility["end_meeting"].set(True)
+            self.button_visibility["start_advanced"].set(True)
+            self.button_visibility["end_advanced"].set(True)
+        if self.cli_args.mp3:
+            self.button_visibility["upload_audio"].set(True)
+        if self.cli_args.summaries:
+            self.button_visibility["summarize"].set(True)
+
         self.save_audio_var = tk.BooleanVar(value=self.settings.get("save_audio", True))
 
-        # Define button order
         self.button_order = [
-            "listen",
-            "long_listen",
-            "start_meeting",
-            "end_meeting",
-            "live_transcribe",
-            "stop_live",
-            "upload_audio",
-            "start_advanced",
-            "end_advanced",
-            "summarize"
+            "listen", "long_listen", "start_meeting", "end_meeting",
+            "live_transcribe", "stop_live", "upload_audio",
+            "start_advanced", "end_advanced", "summarize"
         ]
 
-        # Add UI element visibility settings
-        self.show_meeting_name_var = tk.BooleanVar(value=self.settings.get("show_meeting_name", True))
-        self.show_old_meetings_tab_var = tk.BooleanVar(value=self.settings.get("show_old_meetings_tab", True))
+        # Initialize UI element visibility based on CLI args
+        # If --meetings is not passed, these are False, otherwise load from settings
+        show_meetings_features = self.cli_args.meetings
+        self.show_meeting_name_var = tk.BooleanVar(value=self.settings.get("show_meeting_name", True) if show_meetings_features else False)
+        self.show_old_meetings_tab_var = tk.BooleanVar(value=self.settings.get("show_old_meetings_tab", True) if show_meetings_features else False)
 
         # Build the UI
         self.create_ui()
@@ -392,8 +414,10 @@ class MeetingBuddyApp:
         self.tabview = customtkinter.CTkTabview(self.app, width=1000, height=600)
         self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
         self.tabview.add("Meeting Buddy")
+        
         if self.show_old_meetings_tab_var.get():
             self.tabview.add("Old Meetings")
+        
         self.tabview.add("Settings")
 
         # ---- Meeting Buddy Tab ----
@@ -417,15 +441,16 @@ class MeetingBuddyApp:
         )
         self.use_cuda_checkbox.grid(row=1, column=1, pady=5, padx=10, sticky="w")
 
-        self.load_ollama_models_button = customtkinter.CTkButton(
-            self.meeting_buddy_tab, text="Load Ollama Models", command=self.populate_ollama_models
-        )
-        self.load_ollama_models_button.grid(row=1, column=2, pady=5, padx=10, sticky="w")
+        if self.cli_args.summaries:
+            self.load_ollama_models_button = customtkinter.CTkButton(
+                self.meeting_buddy_tab, text="Load Ollama Models", command=self.populate_ollama_models
+            )
+            self.load_ollama_models_button.grid(row=1, column=2, pady=5, padx=10, sticky="w")
 
-        self.ollama_model_dropdown = customtkinter.CTkOptionMenu(
-            self.meeting_buddy_tab, variable=self.ollama_model_var, values=[]
-        )
-        self.ollama_model_dropdown.grid(row=1, column=3, pady=5, padx=10, sticky="w")
+            self.ollama_model_dropdown = customtkinter.CTkOptionMenu(
+                self.meeting_buddy_tab, variable=self.ollama_model_var, values=[] # Populate with populate_ollama_models
+            )
+            self.ollama_model_dropdown.grid(row=1, column=3, pady=5, padx=10, sticky="w")
 
         # Frames for Meeting Buddy tab
         self.mb_button_frame = customtkinter.CTkFrame(self.meeting_buddy_tab)
@@ -441,6 +466,14 @@ class MeetingBuddyApp:
         self.listen_button.bind('<ButtonPress-1>', self.start_recording)
         self.listen_button.bind('<ButtonRelease-1>', self.stop_recording)
 
+        # Long Listen Button - Moved here
+        self.long_listen_button = customtkinter.CTkButton(
+            self.mb_button_frame, 
+            text="Long Listen",
+            command=self.toggle_long_listen
+        )
+        self.long_listen_button.pack(pady=5, padx=10, fill="x")
+
         self.start_meeting_button = customtkinter.CTkButton(self.mb_button_frame, text="Start Meeting", command=self.start_meeting)
         self.start_meeting_button.pack(pady=5, padx=10, fill="x")
         self.end_meeting_button = customtkinter.CTkButton(self.mb_button_frame, text="End Meeting", command=self.end_meeting)
@@ -452,7 +485,6 @@ class MeetingBuddyApp:
         self.stop_live_button.pack(pady=5, padx=10, fill="x")
         self.stop_live_button.configure(state=tk.DISABLED)
 
-        # New Upload Audio Button
         self.upload_button = customtkinter.CTkButton(self.mb_button_frame, text="Upload Audio", command=self.upload_audio)
         self.upload_button.pack(pady=5, padx=10, fill="x")
 
@@ -464,61 +496,85 @@ class MeetingBuddyApp:
 
         self.summarize_button = customtkinter.CTkButton(self.mb_button_frame, text="Summarize", command=self.summarize_current_text)
         self.summarize_button.pack(pady=5, padx=10, fill="x")
-
-        # Create meeting name entry
-        self.meeting_name_label = customtkinter.CTkLabel(self.meeting_buddy_tab, text="Meeting Name:")
-        self.meeting_name_label.grid(row=3, column=0, columnspan=4, padx=10, pady=(10,0), sticky="w")
         
-        self.meeting_name_entry = customtkinter.CTkEntry(
-            self.meeting_buddy_tab,
-            textvariable=self.meeting_name_var,
-            placeholder_text="Meeting Name (optional)"
-        )
-        if self.show_meeting_name_var.get():
+        if self.show_meeting_name_var.get(): 
+            self.meeting_name_label = customtkinter.CTkLabel(self.meeting_buddy_tab, text="Meeting Name:")
+            self.meeting_name_label.grid(row=3, column=0, columnspan=4, padx=10, pady=(10,0), sticky="w")
+            
+            self.meeting_name_entry = customtkinter.CTkEntry(
+                self.meeting_buddy_tab,
+                textvariable=self.meeting_name_var,
+                placeholder_text="Meeting Name (optional)"
+            )
             self.meeting_name_entry.grid(row=4, column=0, columnspan=4, padx=10, pady=(0,10), sticky="ew")
+        else: 
+            self.meeting_name_label = None
+            self.meeting_name_entry = None
 
         self.text_output = scrolledtext.ScrolledText(self.mb_text_frame, wrap=tk.WORD, bg="#333", fg="white")
         self.text_output.pack(fill="both", expand=True, padx=10, pady=10)
 
         # ---- Old Meetings Tab ----
-        self.old_meetings_tab = self.tabview.tab("Old Meetings")
-        # Search Frame (Dynamic search: key release triggers search)
-        self.search_frame = customtkinter.CTkFrame(self.old_meetings_tab)
-        self.search_frame.pack(fill="x", padx=10, pady=(10, 0))
-        self.search_entry = customtkinter.CTkEntry(self.search_frame, placeholder_text="Search meetings...")
-        self.search_entry.pack(side=tk.LEFT, fill="x", expand=True, padx=(0,5))
-        self.search_entry.bind("<KeyRelease>", self.search_meetings_event)
-        self.clear_search_button = customtkinter.CTkButton(self.search_frame, text="Clear", command=self.update_old_meetings_list)
-        self.clear_search_button.pack(side=tk.LEFT, padx=5)
+        if self.show_old_meetings_tab_var.get():
+            self.old_meetings_tab = self.tabview.tab("Old Meetings")
+            # Search Frame (Dynamic search: key release triggers search)
+            self.search_frame = customtkinter.CTkFrame(self.old_meetings_tab)
+            self.search_frame.pack(fill="x", padx=10, pady=(10, 0))
+            self.search_entry = customtkinter.CTkEntry(self.search_frame, placeholder_text="Search meetings...")
+            self.search_entry.pack(side=tk.LEFT, fill="x", expand=True, padx=(0,5))
+            self.search_entry.bind("<KeyRelease>", self.search_meetings_event)
+            self.clear_search_button = customtkinter.CTkButton(self.search_frame, text="Clear", command=self.update_old_meetings_list)
+            self.clear_search_button.pack(side=tk.LEFT, padx=5)
 
-        # Listbox Frame
-        self.old_list_frame = customtkinter.CTkFrame(self.old_meetings_tab, width=200)
-        self.old_list_frame.pack(side=tk.LEFT, fill="y", padx=10, pady=10)
-        self.old_meetings_listbox = Listbox(self.old_list_frame, selectmode=SINGLE)
-        self.old_meetings_listbox.pack(fill="both", expand=True, padx=5, pady=5)
-        self.old_meetings_listbox.bind("<<ListboxSelect>>", self.load_selected_meeting)
+            # Listbox Frame
+            self.old_list_frame = customtkinter.CTkFrame(self.old_meetings_tab, width=200)
+            self.old_list_frame.pack(side=tk.LEFT, fill="y", padx=10, pady=10)
+            self.old_meetings_listbox = Listbox(self.old_list_frame, selectmode=SINGLE)
+            self.old_meetings_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+            self.old_meetings_listbox.bind("<<ListboxSelect>>", self.load_selected_meeting)
 
-        # Controls Frame (Rename, Summarize, Save, Export)
-        self.old_controls_frame = customtkinter.CTkFrame(self.old_list_frame)
-        self.old_controls_frame.pack(fill="x", padx=5, pady=5)
-        self.rename_button = customtkinter.CTkButton(self.old_controls_frame, text="Rename", command=self.rename_meeting)
-        self.rename_button.pack(fill="x", pady=2, padx=2)
-        self.summarize_old_button = customtkinter.CTkButton(self.old_controls_frame, text="Summarize", command=self.summarize_old_meeting)
-        self.summarize_old_button.pack(fill="x", pady=2, padx=2)
-        self.save_old_button = customtkinter.CTkButton(self.old_controls_frame, text="Save", command=self.save_old_meeting)
-        self.save_old_button.pack(fill="x", pady=2, padx=2)
-        self.export_pdf_button = customtkinter.CTkButton(self.old_controls_frame, text="Export PDF", command=self.export_current_meeting_pdf)
-        self.export_pdf_button.pack(fill="x", pady=2, padx=2)
-        self.export_docx_button = customtkinter.CTkButton(self.old_controls_frame, text="Export DOCX", command=self.export_current_meeting_docx)
-        self.export_docx_button.pack(fill="x", pady=2, padx=2)
-        self.old_meeting_name_entry = customtkinter.CTkEntry(self.old_controls_frame, textvariable=self.old_meeting_name_var)
-        self.old_meeting_name_entry.pack(fill="x", pady=2, padx=2)
+            # Controls Frame (Rename, Summarize, Save, Export)
+            self.old_controls_frame = customtkinter.CTkFrame(self.old_list_frame)
+            self.old_controls_frame.pack(fill="x", padx=5, pady=5)
+            self.rename_button = customtkinter.CTkButton(self.old_controls_frame, text="Rename", command=self.rename_meeting)
+            self.rename_button.pack(fill="x", pady=2, padx=2)
+            self.summarize_old_button = customtkinter.CTkButton(self.old_controls_frame, text="Summarize", command=self.summarize_old_meeting)
+            self.summarize_old_button.pack(fill="x", pady=2, padx=2)
+            self.save_old_button = customtkinter.CTkButton(self.old_controls_frame, text="Save", command=self.save_old_meeting)
+            self.save_old_button.pack(fill="x", pady=2, padx=2)
+            self.export_pdf_button = customtkinter.CTkButton(self.old_controls_frame, text="Export PDF", command=self.export_current_meeting_pdf)
+            self.export_pdf_button.pack(fill="x", pady=2, padx=2)
+            self.export_docx_button = customtkinter.CTkButton(self.old_controls_frame, text="Export DOCX", command=self.export_current_meeting_docx)
+            self.export_docx_button.pack(fill="x", pady=2, padx=2)
+            self.old_meeting_name_entry = customtkinter.CTkEntry(self.old_controls_frame, textvariable=self.old_meeting_name_var)
+            self.old_meeting_name_entry.pack(fill="x", pady=2, padx=2)
 
-        self.old_text_frame = customtkinter.CTkFrame(self.old_meetings_tab)
-        self.old_text_frame.pack(side=tk.RIGHT, fill="both", expand=True, padx=10, pady=10)
-        self.old_meeting_text = scrolledtext.ScrolledText(self.old_text_frame, wrap=tk.WORD, bg="#333", fg="white")
-        self.old_meeting_text.pack(fill="both", expand=True, padx=5, pady=5)
-        self.update_old_meetings_list()
+            self.old_text_frame = customtkinter.CTkFrame(self.old_meetings_tab)
+            self.old_text_frame.pack(side=tk.RIGHT, fill="both", expand=True, padx=10, pady=10)
+            self.old_meeting_text = scrolledtext.ScrolledText(self.old_text_frame, wrap=tk.WORD, bg="#333", fg="white")
+            self.old_meeting_text.pack(fill="both", expand=True, padx=5, pady=5)
+            self.update_old_meetings_list()
+            # Conditional binding for old_meeting_text
+            if hasattr(self, 'old_meeting_text') and self.old_meeting_text is not None:
+                 self.old_meeting_text.bind("<Button-3>", self.handle_right_click)
+        else:
+            self.old_meetings_tab = None
+            # Ensure these attributes exist as None if the tab is not created, to prevent AttributeErrors if accessed elsewhere (though unlikely for these specific ones)
+            self.search_frame = None
+            self.search_entry = None
+            self.clear_search_button = None
+            self.old_list_frame = None
+            self.old_meetings_listbox = None
+            self.old_controls_frame = None
+            self.rename_button = None
+            self.summarize_old_button = None
+            self.save_old_button = None
+            self.export_pdf_button = None
+            self.export_docx_button = None
+            self.old_meeting_name_entry = None
+            self.old_text_frame = None
+            self.old_meeting_text = None
+
 
         # ---- Settings Tab ----
         self.settings_tab = self.tabview.tab("Settings")
@@ -527,17 +583,13 @@ class MeetingBuddyApp:
         settings_container = customtkinter.CTkFrame(self.settings_tab)
         settings_container.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-        # Create the four quadrant frames
+        # Create the two quadrant frames (UI Settings, Whisper Model)
         top_left_frame = customtkinter.CTkFrame(settings_container)  # UI Settings
         top_right_frame = customtkinter.CTkFrame(settings_container)  # Whisper Model
-        bottom_left_frame = customtkinter.CTkFrame(settings_container)  # Local LLMs
-        bottom_right_frame = customtkinter.CTkFrame(settings_container)  # API Settings
 
         # Position the quadrants
         top_left_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
         top_right_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-        bottom_left_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
-        bottom_right_frame.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
         # Quadrant 1: UI Settings (top left)
         theme_label = customtkinter.CTkLabel(top_left_frame, text="UI Theme Settings", font=("Arial", 16))
@@ -588,20 +640,23 @@ class MeetingBuddyApp:
         button_frame = customtkinter.CTkScrollableFrame(top_left_frame, height=150)
         button_frame.pack(fill="x", padx=10, pady=5)
         
-        # Add checkboxes for each button
-        button_labels = {
-            "listen": "Listen Button",
-            "start_meeting": "Start Meeting Button",
-            "end_meeting": "End Meeting Button",
-            "live_transcribe": "Live Transcribe Button",
-            "stop_live": "Stop Live Button",
-            "upload_audio": "Upload Audio Button",
-            "start_advanced": "Start Advanced Meeting Button",
-            "end_advanced": "End Advanced Meeting Button",
-            "summarize": "Summarize Button",
-            "long_listen": "Long Listen Button"
-        }
-        
+        # Button toggles to show based on enabled features
+        button_labels = {}
+        if True:  # Always show these
+            button_labels["listen"] = "Listen Button"
+            button_labels["long_listen"] = "Long Listen Button"
+            button_labels["live_transcribe"] = "Live Transcribe Button"
+            button_labels["stop_live"] = "Stop Live Button"
+        if self.cli_args.meetings:
+            button_labels["start_meeting"] = "Start Meeting Button"
+            button_labels["end_meeting"] = "End Meeting Button"
+            button_labels["start_advanced"] = "Start Advanced Meeting Button"
+            button_labels["end_advanced"] = "End Advanced Meeting Button"
+        if self.cli_args.mp3:
+            button_labels["upload_audio"] = "Upload Audio Button"
+        if self.cli_args.summaries:
+            button_labels["summarize"] = "Summarize Button"
+
         for key, label in button_labels.items():
             checkbox = customtkinter.CTkCheckBox(
                 button_frame,
@@ -610,125 +665,100 @@ class MeetingBuddyApp:
                 command=self.update_button_visibility
             )
             checkbox.pack(fill="x", padx=5, pady=2)
-        
-        # Add Audio Saving Option
-        audio_save_frame = customtkinter.CTkFrame(top_left_frame)
-        audio_save_frame.pack(fill="x", padx=10, pady=10)
-        audio_save_checkbox = customtkinter.CTkCheckBox(
-            audio_save_frame,
-            text="Save Audio Files",
-            variable=self.save_audio_var
-        )
-        audio_save_checkbox.pack(fill="x", padx=5, pady=5)
 
-        # Add UI Element Visibility Settings
-        element_visibility_label = customtkinter.CTkLabel(top_left_frame, text="UI Element Visibility", font=("Arial", 14))
-        element_visibility_label.pack(pady=(10,5))
-        
-        element_frame = customtkinter.CTkFrame(top_left_frame)
-        element_frame.pack(fill="x", padx=10, pady=5)
-        
-        meeting_name_checkbox = customtkinter.CTkCheckBox(
-            element_frame,
-            text="Show Meeting Name Entry",
-            variable=self.show_meeting_name_var,
-            command=self.update_ui_visibility
-        )
-        meeting_name_checkbox.pack(fill="x", padx=5, pady=2)
-        
-        old_meetings_checkbox = customtkinter.CTkCheckBox(
-            element_frame,
-            text="Show Old Meetings Tab",
-            variable=self.show_old_meetings_tab_var,
-            command=self.update_ui_visibility
-        )
-        old_meetings_checkbox.pack(fill="x", padx=5, pady=2)
+        # Add UI Element Visibility Settings only if meetings are enabled
+        if self.cli_args.meetings:
+            element_visibility_label = customtkinter.CTkLabel(top_left_frame, text="UI Element Visibility", font=("Arial", 14))
+            element_visibility_label.pack(pady=(10,5))
+            element_frame = customtkinter.CTkFrame(top_left_frame)
+            element_frame.pack(fill="x", padx=10, pady=5)
+            meeting_name_checkbox = customtkinter.CTkCheckBox(
+                element_frame,
+                text="Show Meeting Name Entry",
+                variable=self.show_meeting_name_var,
+                command=self.update_ui_visibility
+            )
+            meeting_name_checkbox.pack(fill="x", padx=5, pady=2)
+            old_meetings_checkbox = customtkinter.CTkCheckBox(
+                element_frame,
+                text="Show Old Meetings Tab",
+                variable=self.show_old_meetings_tab_var,
+                command=self.update_ui_visibility
+            )
+            old_meetings_checkbox.pack(fill="x", padx=5, pady=2)
 
-        # Quadrant 2: Whisper Model Settings (top right)
-        model_label = customtkinter.CTkLabel(top_right_frame, text="Whisper Model Settings", font=("Arial", 16))
-        model_label.pack(pady=(10,5))
+        # LLM/OpenAI settings only if summaries are enabled
+        if self.cli_args.summaries:
+            # Quadrant 3: Local LLM Settings (bottom left)
+            bottom_left_frame = customtkinter.CTkFrame(settings_container)
+            bottom_left_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+            llm_label = customtkinter.CTkLabel(bottom_left_frame, text="Local LLM Settings", font=("Arial", 16))
+            llm_label.pack(pady=(10,5))
+            self.default_ollama_label = customtkinter.CTkLabel(bottom_left_frame, text="Default Ollama Model:")
+            self.default_ollama_label.pack(fill="x", padx=10, pady=5)
+            ollama_options = load_ollama_models(self.default_use_openai_api_var.get(), self.default_openai_api_key_var.get(), self.default_ollama_ip_var.get())
+            if not ollama_options:
+                ollama_options = ["Select Ollama Model"]
+            self.default_ollama_menu = customtkinter.CTkOptionMenu(
+                bottom_left_frame,
+                variable=self.default_ollama_model_var,
+                values=ollama_options
+            )
+            self.default_ollama_menu.pack(fill="x", padx=10, pady=5)
+            ip_frame = customtkinter.CTkFrame(bottom_left_frame)
+            ip_frame.pack(fill="x", padx=10, pady=5)
+            self.default_ollama_ip_label = customtkinter.CTkLabel(ip_frame, text="Ollama IP:")
+            self.default_ollama_ip_label.pack(side="left", padx=5)
+            self.default_ollama_ip_entry = customtkinter.CTkEntry(
+                ip_frame,
+                textvariable=self.default_ollama_ip_var
+            )
+            self.default_ollama_ip_entry.pack(side="right", expand=True, fill="x", padx=5)
 
-        self.default_model_label = customtkinter.CTkLabel(top_right_frame, text="Default Whisper Model:")
-        self.default_model_label.pack(fill="x", padx=10, pady=5)
-        self.default_model_menu = customtkinter.CTkOptionMenu(
-            top_right_frame,
-            variable=self.default_model_var,
-            values=["tiny", "base", "small", "medium", "large", "turbo"]
-        )
-        self.default_model_menu.pack(fill="x", padx=10, pady=5)
+            # Quadrant 4: API Settings (bottom right)
+            bottom_right_frame = customtkinter.CTkFrame(settings_container)
+            bottom_right_frame.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+            self.openai_frame = customtkinter.CTkFrame(bottom_right_frame)
+            self.openai_frame.pack(fill="x", padx=10, pady=10)
+            api_label = customtkinter.CTkLabel(self.openai_frame, text="OpenAI API Settings", font=("Arial", 16))
+            api_label.pack(pady=(10,5))
+            self.default_use_openai_checkbox = customtkinter.CTkCheckBox(
+                self.openai_frame,
+                text="Use OpenAI API",
+                variable=self.default_use_openai_api_var
+            )
+            self.default_use_openai_checkbox.pack(fill="x", padx=10, pady=5)
+            key_frame = customtkinter.CTkFrame(self.openai_frame)
+            key_frame.pack(fill="x", padx=10, pady=5)
+            self.openai_key_label = customtkinter.CTkLabel(key_frame, text="API Key:")
+            self.openai_key_label.pack(side="left", padx=5)
+            self.openai_key_entry = customtkinter.CTkEntry(
+                key_frame,
+                textvariable=self.default_openai_api_key_var,
+                show="*"
+            )
+            self.openai_key_entry.pack(side="right", expand=True, fill="x", padx=5)
+            model_frame = customtkinter.CTkFrame(self.openai_frame)
+            model_frame.pack(fill="x", padx=10, pady=5)
+            self.openai_model_label = customtkinter.CTkLabel(model_frame, text="Model:")
+            self.openai_model_label.pack(side="left", padx=5)
+            self.openai_model_menu = customtkinter.CTkOptionMenu(
+                model_frame,
+                variable=self.default_openai_model_var,
+                values=["gpt-3.5-turbo", "gpt-4"]
+            )
+            self.openai_model_menu.pack(side="right", padx=5)
 
-        self.default_keep_checkbox = customtkinter.CTkCheckBox(
-            top_right_frame,
-            text="Keep default model loaded permanently",
-            variable=self.default_keep_model_loaded_var
-        )
-        self.default_keep_checkbox.pack(fill="x", padx=10, pady=5)
-
-        # Quadrant 3: Local LLM Settings (bottom left)
-        llm_label = customtkinter.CTkLabel(bottom_left_frame, text="Local LLM Settings", font=("Arial", 16))
-        llm_label.pack(pady=(10,5))
-
-        self.default_ollama_label = customtkinter.CTkLabel(bottom_left_frame, text="Default Ollama Model:")
-        self.default_ollama_label.pack(fill="x", padx=10, pady=5)
-
-        ollama_options = load_ollama_models(self.default_use_openai_api_var.get(), 
-                                              self.default_openai_api_key_var.get(), 
-                                              self.default_ollama_ip_var.get())
-        if not ollama_options:
-            ollama_options = ["Select Ollama Model"]
-
-        self.default_ollama_menu = customtkinter.CTkOptionMenu(
-            bottom_left_frame,
-            variable=self.default_ollama_model_var,
-            values=ollama_options
-        )
-        self.default_ollama_menu.pack(fill="x", padx=10, pady=5)
-
-        ip_frame = customtkinter.CTkFrame(bottom_left_frame)
-        ip_frame.pack(fill="x", padx=10, pady=5)
-        self.default_ollama_ip_label = customtkinter.CTkLabel(ip_frame, text="Ollama IP:")
-        self.default_ollama_ip_label.pack(side="left", padx=5)
-        self.default_ollama_ip_entry = customtkinter.CTkEntry(
-            ip_frame,
-            textvariable=self.default_ollama_ip_var
-        )
-        self.default_ollama_ip_entry.pack(side="right", expand=True, fill="x", padx=5)
-
-        # Quadrant 4: API Settings (bottom right)
-        self.openai_frame = customtkinter.CTkFrame(bottom_right_frame)
-        self.openai_frame.pack(fill="x", padx=10, pady=10)
-
-        api_label = customtkinter.CTkLabel(self.openai_frame, text="OpenAI API Settings", font=("Arial", 16))
-        api_label.pack(pady=(10,5))
-
-        self.default_use_openai_checkbox = customtkinter.CTkCheckBox(
-            self.openai_frame,
-            text="Use OpenAI API",
-            variable=self.default_use_openai_api_var
-        )
-        self.default_use_openai_checkbox.pack(fill="x", padx=10, pady=5)
-
-        key_frame = customtkinter.CTkFrame(self.openai_frame)
-        key_frame.pack(fill="x", padx=10, pady=5)
-        self.openai_key_label = customtkinter.CTkLabel(key_frame, text="API Key:")
-        self.openai_key_label.pack(side="left", padx=5)
-        self.openai_key_entry = customtkinter.CTkEntry(
-            key_frame,
-            textvariable=self.default_openai_api_key_var,
-            show="*"
-        )
-        self.openai_key_entry.pack(side="right", expand=True, fill="x", padx=5)
-
-        model_frame = customtkinter.CTkFrame(self.openai_frame)
-        model_frame.pack(fill="x", padx=10, pady=5)
-        self.openai_model_label = customtkinter.CTkLabel(model_frame, text="Model:")
-        self.openai_model_label.pack(side="left", padx=5)
-        self.openai_model_menu = customtkinter.CTkOptionMenu(
-            model_frame,
-            variable=self.default_openai_model_var,
-            values=["gpt-3.5-turbo", "gpt-4"]
-        )
-        self.openai_model_menu.pack(side="right", padx=5)
+        # Add Audio Saving Option only if mp3 or full is enabled
+        if self.cli_args.mp3 or self.cli_args.full:
+            audio_save_frame = customtkinter.CTkFrame(top_left_frame)
+            audio_save_frame.pack(fill="x", padx=10, pady=10)
+            audio_save_checkbox = customtkinter.CTkCheckBox(
+                audio_save_frame,
+                text="Save Audio Files",
+                variable=self.save_audio_var
+            )
+            audio_save_checkbox.pack(fill="x", padx=5, pady=5)
 
         # Save Button at the bottom
         self.save_settings_button = customtkinter.CTkButton(settings_container, text="Save Settings", command=self.save_settings)
@@ -749,22 +779,31 @@ class MeetingBuddyApp:
         
         # Add right-click bindings to text areas
         self.text_output.bind("<Button-3>", self.handle_right_click)
-        self.old_meeting_text.bind("<Button-3>", self.handle_right_click)
+        # self.old_meeting_text.bind("<Button-3>", self.handle_right_click) # Moved to be conditional
 
-        # Add long_listen to button visibility and order
-        self.button_visibility["long_listen"] = tk.BooleanVar(value=True)
-        self.button_order.insert(1, "long_listen")  # Insert after "listen"
-        
-        # Create Long Listen button
-        self.long_listen_button = customtkinter.CTkButton(
-            self.mb_button_frame, 
-            text="Long Listen",
-            command=self.toggle_long_listen
+        # Apply initial visibility settings after all widgets are created
+        self.update_button_visibility()
+        self.update_ui_visibility()
+
+        # Quadrant 2: Whisper Model Settings (top right) - always visible
+        model_label = customtkinter.CTkLabel(top_right_frame, text="Whisper Model Settings", font=("Arial", 16))
+        model_label.pack(pady=(10,5))
+
+        self.default_model_label = customtkinter.CTkLabel(top_right_frame, text="Default Whisper Model:")
+        self.default_model_label.pack(fill="x", padx=10, pady=5)
+        self.default_model_menu = customtkinter.CTkOptionMenu(
+            top_right_frame,
+            variable=self.default_model_var,
+            values=["tiny", "base", "small", "medium", "large", "turbo"]
         )
-        self.long_listen_button.pack(pady=5, padx=10, fill="x")
-        
-        # Add long listen state variable
-        self.is_long_listening = False
+        self.default_model_menu.pack(fill="x", padx=10, pady=5)
+
+        self.default_keep_checkbox = customtkinter.CTkCheckBox(
+            top_right_frame,
+            text="Keep default model loaded permanently",
+            variable=self.default_keep_model_loaded_var
+        )
+        self.default_keep_checkbox.pack(fill="x", padx=10, pady=5)
 
     def handle_right_click(self, event):
         try:
@@ -900,14 +939,10 @@ class MeetingBuddyApp:
             # Unload Whisper model before summarization
             self.model_manager.unload_model()
             
-            if self.default_use_openai_api_var.get() and self.default_openai_api_key_var.get().strip():
-                summary = get_openai_summary(text, self.default_openai_api_key_var.get(), self.default_openai_model_var.get())
-            else:
-                summary = summarize_text_local(text, self.ollama_model_var.get(),
-                                               self.default_use_openai_api_var.get(),
-                                               self.default_openai_api_key_var.get(),
-                                               self.default_ollama_ip_var.get())
-            self.queue_ui_update(lambda: self.text_output.insert(tk.END, "\n\nSummary:\n" + summary))
+            # LLM features removed: always show warning
+            messagebox.showwarning("Not Available", "Summarization features are not available in this version.")
+            # Optionally, you could implement a basic summary using Whisper or another method here.
+            # If you want to disable the button entirely, you can do so in the UI logic.
             
             # Reload Whisper model if keep_model_loaded is enabled
             if self.default_keep_model_loaded_var.get():
@@ -1495,7 +1530,7 @@ class MeetingBuddyApp:
     # ------------- New Method: Update UI Element Visibility -------------
     def update_ui_visibility(self):
         # Update meeting name entry and label visibility
-        if hasattr(self, 'meeting_name_entry'):
+        if self.meeting_name_label is not None and self.meeting_name_entry is not None:
             if self.show_meeting_name_var.get():
                 self.meeting_name_label.grid(row=3, column=0, columnspan=4, padx=10, pady=(10,0), sticky="w")
                 self.meeting_name_entry.grid(row=4, column=0, columnspan=4, padx=10, pady=(0,10), sticky="ew")
@@ -1634,5 +1669,6 @@ class MeetingBuddyApp:
         threading.Thread(target=self.transcribe_audio, args=(audio, False, None, False)).start()
 
 if __name__ == "__main__":
-    app = MeetingBuddyApp()
+    # Pass parsed arguments to the app
+    app = MeetingBuddyApp(cli_args=args)
     app.run()
