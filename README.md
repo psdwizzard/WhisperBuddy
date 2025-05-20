@@ -2,7 +2,7 @@
 
 A simple desktop application for real-time speech-to-text transcription using OpenAI's Whisper models.
 
-![Whisper Buddy Screenshot](https://raw.githubusercontent.com/psdwizzard/WhisperBuddy/refs/heads/main/Screenshot.png?token=GHSAT0AAAAAAC7BVA6RXWOJ7KGBCW2AAHEA2BM5GCA)
+![Whisper Buddy Screenshot](https://raw.githubusercontent.com/psdwizzard/WhisperBuddy/refs/heads/main/Screenshot.png)
 
 ## Features
 
